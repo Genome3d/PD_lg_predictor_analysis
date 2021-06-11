@@ -1,0 +1,113 @@
+# Combine the PD UK Biobank case eQTL table and randomly chosen 30 sets of PD UK Bio bank control eQTL table
+# The 30 sets of the combined PD UK Bio test eQTL data were evaluated by PD model-2 
+
+
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn import linear_model
+import pandas as pd
+from sklearn.model_selection import GridSearchCV
+from tsfresh import extract_features, select_features
+from  tsfresh.feature_selection.relevance import calculate_relevance_table
+import pickle
+import sklearn.metrics as metrics
+
+
+temp_table = pd.read_csv("PD_Tissue_SNP_Gene_eQTL_table_beta.txt", sep="\t")
+x_features = temp_table[temp_table.columns[6:]]
+y_phenotype = temp_table['PHENOTYPE'] - 1
+
+X_selected0_1 = select_features(x_features, y_phenotype,test_for_binary_target_real_feature='mann', test_for_real_target_binary_feature='mann', fdr_level=0.05 )
+full_columns = list(temp_table.columns[:6]) + list(X_selected0_1.columns)
+org_table = temp_table[full_columns]
+org_table.shape
+>>> org_table.shape
+(4366, 926)
+
+
+features = pd.read_csv("PD_Nalls_90_tissue_models/PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020features.txt", names = ['fields'], sep="\t")
+model_com = features['fields'].values.tolist()
+>>> len(model_com)
+311
+
+eQTL_table = pd.read_csv("PD_UKBio_cases_Nalls_90_SNPs_beta_eQTL_table.txt", sep="\t")
+#temp_X = eQTL_table[eQTL_table.columns[6:]]
+#Y = eQTL_table['PHENOTYPE'] - 1
+
+eQTL_table.shape
+
+>>> eQTL_table.shape
+(1724, 3226)
+
+model_com2 = eQTL_table.columns[:6].values.tolist() + model_com
+len(model_com2)
+>>> len(model_com2)
+317
+
+
+case_table = eQTL_table[model_com2]
+
+
+case_table2 = case_table.dropna()
+>>> case_table2.shape
+(1484, 317)
+
+
+
+eQTL_table2 = pd.read_csv("PD_UKBio_controls_Nalls_90_SNPs_swaped_beta_eQTL_table.txt", sep="\t")
+#temp_X = eQTL_table[eQTL_table.columns[6:]]
+#Y = eQTL_table['PHENOTYPE'] - 1
+
+eQTL_table2.shape
+>>> eQTL_table.shape
+(162997, 3226)
+
+control_table = eQTL_table2[model_com2]
+
+
+control_table2 = control_table.dropna()
+>>> control_table.shape
+(162997, 317)
+
+filename = 'PD_Nalls_90_tissue_models/PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020.sav'
+loaded_model = pickle.load(open(filename, 'rb'))
+
+lg_clf = loaded_model
+
+
+num = [1,2,3,4,5,6,7,8,9,10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+
+AUCs = []
+
+for p in num:
+	control_table3 = control_table2.copy().reindex( np.random.permutation(control_table2.index))
+#	control_table4 = control_table3.reindex( np.random.permutation(control_table.index))
+	sub_control_table = control_table3.head(2329)
+	test_data = pd.concat([case_table2,sub_control_table],ignore_index=True)
+	file_name = 'Test_datasets/UKBio_testdata' + str(p) + '.txt'
+	test_data.to_csv(file_name, sep='\t', index=False)
+	y_test = test_data['PHENOTYPE'] - 1
+	x_test = test_data[test_data.columns[6:]]
+	for fe in org_table.columns[6:]:
+		if fe not in test_data.columns[6:]:
+			x_test[fe] = 0
+	x_test2 = x_test[org_table.columns[6:]]
+	AUCs.append(roc_auc_score(y_test, lg_clf.predict_proba(x_test2)[:,1]))
+	
+results = pd.DataFrame(AUCs,columns=['UKBIO PD AUC'])
+results.to_csv("Test_datasets/30_UKBio_PD_AUCs.txt", sep='\t', index=False)
+>>> results['UKBIO PD AUC'].mean()
+0.554183554016566
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+results = pd.read_csv("Test_datasets/30_UKBio_PD_AUCs.txt", sep='\t')
+
+
+sns.distplot(results,hist=False, rug=True)
+ 
+plt.show()
+
