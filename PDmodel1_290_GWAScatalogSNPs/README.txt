@@ -1,4 +1,4 @@
-Parkinson's disease (PD) PD model-1 regularized logistic regression predictor model
+Parkinson's disease (PD) PD model-1 regularized logistic regression predictor model from 290 PD SNPs of GWAS catalog
 
 Python 3.7.3 tsfresh 0.16.0 scikit-learn 0.23.2
 
