@@ -1,0 +1,99 @@
+# create PD model-1 from WTCCC PD derived tissue specific eQTL data
+import numpy as np
+import pandas as pd
+
+
+from tsfresh import extract_features, select_features
+from  tsfresh.feature_selection.relevance import calculate_relevance_table
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn import linear_model
+
+from sklearn.model_selection import GridSearchCV
+eQTL_table = pd.read_csv("PD_GWAS_Nalls_Tissue_SNP_Gene_eQTL_table_beta.txt", sep="\t")
+x_features = eQTL_table[eQTL_table.columns[6:]]
+y_phenotype = eQTL_table['PHENOTYPE'] - 1
+
+>>> eQTL_table.shape
+(4366, 17889)
+>>> x_features.shape
+(4366, 17883)
+
+
+
+----------------------------------------------------------------------------------------
+*********************
+full PD tissue specific eQTL table
+10 fold vlidation
+Mann FDR = 0.05
+
+*********************
+
+X_selected0_1 = select_features(x_features, y_phenotype,test_for_binary_target_real_feature='mann', test_for_real_target_binary_feature='mann', fdr_level=0.05 )
+
+>>> X.shape
+(4366, 11288)
+>>> eQTL_table.shape
+(4366, 17889)
+
+
+full_columns = list(eQTL_table.columns[:6]) + list( X_selected0_1.columns)
+selected_std_full = eQTL_table[full_columns]
+
+X = X_selected0_1
+Y = eQTL_table['PHENOTYPE'] - 1
+
+parameters = {'C':[0.01,0.05,0.1,0.5,1,10,20,30],'max_iter':[ 200,500,800,1000,1200,1400,1500,1600],'l1_ratio':[1,0.9,0.8,0.7,0.6,0.4,0.2,0.1]}
+#parameters = {'C':[0.5],'max_iter':[800],'l1_ratio':[0.6]}
+lg_clf = LogisticRegression(random_state=1, solver='saga',n_jobs=-1, penalty='elasticnet' )
+grid_clf = GridSearchCV(lg_clf, parameters, scoring='roc_auc', n_jobs=-1, cv=10)
+grid_clf.fit(X,Y)
+
+X.shape
+grid_clf.best_score_
+grid_clf.best_estimator_
+grid_clf.best_params_
+
+lg_clf_best_grid = grid_clf.best_estimator_
+
+roc_auc_score(Y, lg_clf_best_grid.predict_proba(X)[:,1])
+
+np.sum(lg_clf_best_grid.coef_[0,:] != 0)
+
+>>> X.shape
+(4366, 11288)
+>>> grid_clf.best_score_
+0.6060721514224088
+>>> grid_clf.best_estimator_
+LogisticRegression(C=0.5, l1_ratio=0.6, max_iter=800, n_jobs=-1,
+                   penalty='elasticnet', random_state=1, solver='saga')
+>>> grid_clf.best_params_
+{'C': 0.5, 'l1_ratio': 0.6, 'max_iter': 800}
+>>>
+>>> lg_clf_best_grid = grid_clf.best_estimator_
+>>>
+>>> roc_auc_score(Y, lg_clf_best_grid.predict_proba(X)[:,1])
+0.6273804352240842
+>>>
+>>> np.sum(lg_clf_best_grid.coef_[0,:] != 0)
+833
+
+
+
+X_header = np.array(X.columns)
+best_clf =  grid_clf.best_estimator_
+data_array = np.vstack((X_header,best_clf.coef_[0,:]))
+model_weights = pd.DataFrame(data=data_array.T,columns=['Data_feature', 'Weight'])
+model_weights.to_csv('PD_GWAS_Nalls_finalfull_Mann0.05_lg_saga_elect0.6C0.5max800_beta_20122020weights.txt', sep='\t',index=False,line_terminator='\n')
+
+
+import pickle
+filename = 'PD_GWAS_Nalls_finalfull_Mann0.05_lg_saga_elect0.6C0.5max800_beta_20122020.sav'
+pickle.dump(lg_clf_best_grid, open(filename, 'wb'))
+
+
+model_com = model_weights.loc[model_weights['Weight'] != 0 ]
+
+model_com['Data_feature'].to_csv('PD_GWAS_Nalls_finalfull_Mann0.05_lg_saga_elect0.6C0.5max800_beta_20122020features.txt', sep='\t',header=False,index=False,line_terminator='\n')
+

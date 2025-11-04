@@ -1,0 +1,141 @@
+
+---------------------------------------------------------------------------------------------------------------------------------
+# python program for creating new dbGap version of snp table from the mapping table.
+
+import numpy as np
+import pandas as pd
+
+mapping_table = "PD_Nalls_model_SNPs_and_dbGap_SNPs_mapping_table.txt"
+dbGap_model_data = pd.DataFrame()
+dbGap_raw_data = pd.read_csv('dbGap_version_PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020_snp_table.raw',sep = " ")
+dbGap_model_data = dbGap_raw_data[dbGap_raw_data.columns[:6]]
+
+inputfile = open(mapping_table, 'r')
+while True:
+	input_line = inputfile.readline()
+	input_line = input_line[:-1]
+	if not input_line:
+		break
+	else:
+		maps = input_line.split('\t')
+		map1 = maps[0].strip()
+		map2 = maps[1].strip()
+		dbGap_model_data[map1] = dbGap_raw_data[map2]
+
+dbGap_model_data.to_csv('dbGap_ver_mapped_PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020_snp_table.txt', sep='\t', index=False)
+
+--------------------------------------------------------------------------------------------------------------------------------------
+# python program for creating the Tissue specific eQTL expression table.
+
+import numpy as np
+import pandas as pd
+
+TSG_list = pd.read_csv('PD_Tissue_SNP_Gene_sig_mapping_sorted_beta.txt',sep='\t')
+temp_table = pd.read_csv('dbGap_ver_mapped_PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020_snp_table.txt',sep = '\t')
+
+>>> temp_table.shape
+
+
+eQTL_table = temp_table.dropna()
+
+>>> eQTL_table.shape
+(10851, 18)
+  
+tmp_eQTL_table = eQTL_table.copy()
+samples_header = list (eQTL_table.columns[0:6])
+SNP_w_list = list(eQTL_table.columns[6:])
+tmp_SNP_w_list = SNP_w_list.copy()
+TSG_cols = []
+drop_SNPs = []
+
+for rsSNP_w in tmp_SNP_w_list :
+	rsSNP = rsSNP_w.split('_')[0]
+	tmp_TSGs = list ( TSG_list.Tissue[TSG_list.SNP == rsSNP] + "--" + rsSNP_w + "--" + TSG_list.Gene_Name[TSG_list.SNP == rsSNP])
+	tmp_Effects = list ( TSG_list.Effect_Size[TSG_list.SNP == rsSNP])
+	if len(tmp_Effects) != 0 :
+		count = 0
+		for TSG in tmp_TSGs:
+			tmp_eQTL_table[TSG] = tmp_eQTL_table[rsSNP_w] * tmp_Effects[count]
+			count = count + 1
+			TSG_cols.append(TSG)
+		drop_SNPs.append(rsSNP_w)
+
+for rsSNP_w in drop_SNPs:
+	SNP_w_list.remove(rsSNP_w)
+	
+TSG_col_sorted = sorted(TSG_cols)
+new_eQTL_table = tmp_eQTL_table[samples_header + TSG_col_sorted + SNP_w_list]
+new_eQTL_table.to_csv('dbGap_ver_mapped_PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020_eQTL_table.txt', sep='\t', index=False)
+			
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+# evaluate PD model-2 with the dbGap test data
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn import linear_model
+import pandas as pd
+from sklearn.model_selection import GridSearchCV
+from tsfresh import extract_features, select_features
+from  tsfresh.feature_selection.relevance import calculate_relevance_table
+import pickle
+import sklearn.metrics as metrics
+
+
+
+temp_table = pd.read_csv("PD_Tissue_SNP_Gene_eQTL_table_beta.txt", sep="\t")
+x_features = temp_table[temp_table.columns[6:]]
+y_phenotype = temp_table['PHENOTYPE'] - 1
+
+X_selected0_1 = select_features(x_features, y_phenotype,test_for_binary_target_real_feature='mann', test_for_real_target_binary_feature='mann', fdr_level=0.05 )
+full_columns = list(temp_table.columns[:6]) + list(X_selected0_1.columns)
+org_table = temp_table[full_columns]
+org_table.shape
+>>> org_table.shape
+(4366, 926)
+
+
+features = pd.read_csv("PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020features.txt", names = ['fields'], sep="\t")
+model_com = features['fields'].values.tolist()
+>>> len(model_com)
+311
+
+eQTL_table = pd.read_csv("dbGap_ver_mapped_PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020_eQTL_table.txt", sep="\t")
+
+eQTL_table.shape
+
+>>> eQTL_table.shape
+(10851, 926)
+
+
+model_com2 = eQTL_table.columns[:6].values.tolist() + model_com
+len(model_com2)
+>>> len(model_com2)
+317
+
+
+test_data = eQTL_table[model_com2]
+>>> test_data.shape
+(10851, 317)
+
+
+filename = 'PD_Nalls_90_58Conly_full_beta_lg_C0.6elast0.1max130_04122020.sav'
+loaded_model = pickle.load(open(filename, 'rb'))
+
+lg_clf = loaded_model
+
+y_test = test_data['PHENOTYPE'] - 1
+x_test = test_data[test_data.columns[6:]]
+for fe in org_table.columns[6:]:
+	if fe not in test_data.columns[6:]:
+		x_test[fe] = 0
+x_test2 = x_test[org_table.columns[6:]]
+roc_auc_score(y_test, lg_clf.predict_proba(x_test2)[:,1])
+>>> roc_auc_score(y_test, lg_clf.predict_proba(x_test2)[:,1])
+0.5676696845655382
+
+
+
+
+
+
